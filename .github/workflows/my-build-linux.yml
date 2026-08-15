@@ -1,0 +1,82 @@
+name: My Aseprite Linux Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # 1. 获取 Aseprite 源码和所有 submodules
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2. 安装 Linux 编译依赖
+      - name: Install Dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            g++ \
+            clang \
+            cmake \
+            ninja-build \
+            unzip \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libgl1-mesa-dev \
+            libfontconfig1-dev
+
+      # 3. 下载 Ninja
+      - name: Install Ninja
+        uses: aseprite/get-ninja@main
+
+      # 4. 下载与当前 Aseprite 源码匹配的 Skia
+      - name: Install Skia
+        shell: bash
+        run: |
+          skia_url=$(source laf/misc/skia-url.sh | xargs)
+          skia_file=$(basename "$skia_url")
+
+          echo "Skia URL: $skia_url"
+
+          curl --ssl-revoke-best-effort -L \
+            -o "$skia_file" \
+            "$skia_url"
+
+          unzip "$skia_file" -d skia
+
+      # 5. 配置 CMake
+      - name: Configure
+        shell: bash
+        run: |
+          export CC=clang
+          export CXX=clang++
+
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_CXX_FLAGS:STRING=-stdlib=libstdc++ \
+            -DCMAKE_EXE_LINKER_FLAGS:STRING=-stdlib=libstdc++ \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR="$(realpath skia)" \
+            -DSKIA_LIBRARY_DIR="$(realpath skia/out/Release-x64)"
+
+      # 6. 编译
+      - name: Build
+        shell: bash
+        run: |
+          cd build
+          ninja aseprite
+
+      # 7. 上传可执行文件
+      - name: Upload Aseprite
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-linux-x86_64
+          path: build/bin/aseprite
